@@ -1,0 +1,379 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<title>QRヨミトリ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: a work surface of two panes, the scanned image beside its decoded result; stacks on phones. */
+:root {
+  --bg: #eef2f1;
+  --surface: #ffffff;
+  --ink: #15211f;
+  --muted: #55645f;
+  --line: #cbd6d2;
+  --accent: #006d62;
+  --on-accent: #ffffff;
+  --mark: #e0007a;
+  --warn: #8a4b00;
+  --error: #b3261e;
+  --font-display: "DotGothic16", "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --font-data: "IBM Plex Mono", "Zen Kaku Gothic New", ui-monospace, "Hiragino Sans", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101716; --surface: #18211f; --ink: #e6eeeb; --muted: #9db0aa; --line: #30403c;
+    --accent: #4fd0bd; --on-accent: #06211d; --mark: #ff5cb3; --warn: #f0b566; --error: #ff8f86;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101716; --surface: #18211f; --ink: #e6eeeb; --muted: #9db0aa; --line: #30403c;
+  --accent: #4fd0bd; --on-accent: #06211d; --mark: #ff5cb3; --warn: #f0b566; --error: #ff8f86;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+}
+.page {
+  max-width: 920px; margin-inline: auto;
+  padding-block: 28px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px;
+}
+header { display: flex; align-items: center; gap: 12px; }
+.finder {
+  flex: none; width: 34px; height: 34px;
+  border: 5px solid var(--ink); padding: 5px;
+}
+.finder::before { content: ""; display: block; width: 100%; height: 100%; background: var(--ink); }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: 1.9rem; line-height: 1; margin: 0; letter-spacing: .04em; }
+.panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.scan, .result { min-width: 0; display: grid; gap: 12px; }
+
+.viewer {
+  position: relative; aspect-ratio: 1; max-width: 100%;
+  background: var(--surface); border: 1px solid var(--line);
+  display: grid; place-items: center; overflow: hidden;
+}
+.viewer.over { outline: 3px dashed var(--accent); outline-offset: -8px; }
+#screen { display: block; max-width: 100%; max-height: 100%; }
+.tag {
+  position: absolute; top: 10px; left: 10px;
+  background: var(--ink); color: var(--bg);
+  font-size: .75rem; padding: 1px 8px; letter-spacing: .08em;
+}
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button, .open {
+  font: inherit; font-weight: 700; font-size: .95rem;
+  min-height: 44px; padding: 8px 16px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  text-decoration: none;
+}
+.actions button { flex: 1 1 140px; }
+button.primary, .open { background: var(--accent); color: var(--on-accent); }
+button:hover, .open:hover { filter: brightness(1.12); }
+:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+#status { margin: 0; font-size: .875rem; color: var(--muted); min-height: 1.7em; }
+#status.error { color: var(--error); font-weight: 500; }
+
+.result { background: var(--surface); border: 1px solid var(--line); padding: 20px; }
+.kind { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip { font-family: var(--font-data); font-size: .75rem; font-weight: 500; border: 1px solid var(--ink); padding: 0 8px; }
+.meta { font-family: var(--font-data); font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+#text {
+  margin: 0; font-family: var(--font-data); font-size: 1.05rem; line-height: 1.6;
+  overflow-wrap: anywhere; white-space: pre-wrap; max-height: 44vh; overflow-y: auto; user-select: all;
+}
+#host { margin: 0; font-size: .9rem; color: var(--warn); overflow-wrap: anywhere; }
+#host b { font-family: var(--font-data); font-weight: 500; }
+dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 16px; }
+dt { color: var(--muted); font-size: .875rem; }
+dd { margin: 0; font-family: var(--font-data); overflow-wrap: anywhere; }
+.result .actions { margin-top: 4px; }
+.empty { margin: 0; color: var(--muted); }
+footer { font-size: .8125rem; color: var(--muted); }
+footer p { margin: 0; }
+@media (max-width: 680px) {
+  .page { padding-block: 20px 32px; }
+  .panes { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="page">
+  <header>
+    <div class="finder" aria-hidden="true"></div>
+    <h1>QRヨミトリ</h1>
+  </header>
+
+  <main class="panes">
+    <section class="scan" aria-label="読み取り">
+      <div class="viewer" id="viewer">
+        <canvas id="screen" aria-label="読み取り中の画像"></canvas>
+        <span class="tag" id="tag" hidden>サンプル</span>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="liveBtn" hidden>カメラで読み取る</button>
+        <button type="button" id="shootBtn" hidden>写真を撮る</button>
+        <button type="button" id="pickBtn">画像を選ぶ</button>
+      </div>
+      <input type="file" id="pick" accept="image/*" hidden>
+      <input type="file" id="shoot" accept="image/*" capture="environment" hidden>
+      <p id="status" role="status" aria-live="polite">画像のドラッグ&ドロップや貼り付けでも読み取れます。</p>
+    </section>
+
+    <section class="result" aria-label="読み取り結果">
+      <p class="empty" id="empty">QRコードを読み取ると、ここに内容が表示されます。</p>
+      <div class="kind" id="kindRow" hidden>
+        <span class="chip" id="kind"></span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <p id="host" hidden></p>
+      <p id="text" hidden></p>
+      <dl id="wifi" hidden></dl>
+      <div class="actions" id="resultActions" hidden>
+        <a class="open" id="open" target="_blank" rel="noopener noreferrer" hidden>リンクを開く</a>
+        <button type="button" id="copy">コピー</button>
+      </div>
+    </section>
+  </main>
+
+  <footer><p>画像はこの端末の中だけで処理します。外部には送信しません。</p></footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+(() => {
+  const SAMPLE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPgAAAD4CAYAAADB0SsLAAAAAklEQVR4AewaftIAAAWBSURBVO3B0a0DBw4EwR5C+ac85wTMj1sspEd3VfoPJJ00SDprkHTWIOmsQdJZg6SzBklnDZLOGiSdNUg6a5B01iDprEHSWYOkswZJZw2SzhoknTVIOmuQdNYg6axB0lmDpLMGSWcNks768LIkXNaWTRI2bXkiCU+0ZZOEN7Vlk4TL2vKmQdJZg6SzBklnDZLOGiSdNUg6a5B01ocva8svS8ITbdkk4U1teaItTyThTW35ZUn4pkHSWYOkswZJZw2SzhoknTVIOmuQdNaHH5eEN7Xll7Xlm5KwacsvS8Kb2vLLBklnDZLOGiSdNUg6a5B01iDprEHSWR/0qiQ8kYRNWzZJeFMS9LsGSWcNks4aJJ01SDprkHTWIOmsQdJZH/RVbXkiCZu2PJEE/V2DpLMGSWcNks4aJJ01SDprkHTWIOmsDz+uLZclYdOWTVueSMKmLX9ZW/7LBklnDZLOGiSdNUg6a5B01iDprEHSWR++LAn/ZW3ZJGHTlk0SNm3ZJGHTlk0SNm15Ign6d4OkswZJZw2SzhoknTVIOmuQdNYg6awPL2uL/l0SNm35y9ryRFv0/xsknTVIOmuQdNYg6axB0lmDpLMGSWd9eFkSNm15UxI2bdkk4ZclYdOWNyVh05ZNEn5ZW55IwqYtbxoknTVIOmuQdNYg6axB0lmDpLMGSWd9+OOSsGnLJgmbtjyRBP3/2vJEEt6UhE1bvmmQdNYg6axB0lmDpLMGSWcNks4aJJ31QaskbNryy5LwlyXhibZskrBJwqYtv2yQdNYg6axB0lmDpLMGSWcNks4aJJ314cclYdOWN7Vlk4RNW55IwhNteSIJ39SWTRKeaMsmCZskbNryTYOkswZJZw2SzhoknTVIOmuQdNYg6awPX5aENyVh05ZNEjZt2SRh05ZNW96UhCfa8qYkvCkJb0rCpi1vGiSdNUg6a5B01iDprEHSWYOkswZJZ6X/4EVJeKItf1kS3tSWTRI2bdkk4U1teVMSNm15IgmbtnzTIOmsQdJZg6SzBklnDZLOGiSdNUg6K/0HhyVh05ZNEp5oyyYJm7ZsknBZWzZJ+Ka2/LJB0lmDpLMGSWcNks4aJJ01SDprkHTWhx+XhE1b3tSWTRKeaMsmCU+0ZZOETVs2Sdi05Ze1ZZOETRI2bfmmQdJZg6SzBklnDZLOGiSdNUg6a5B01oeXJeFNSdi05YkkbNqyScKb2rJJwjcl4Zcl4Ym2/LJB0lmDpLMGSWcNks4aJJ01SDprkHRW+g/0miRs2vJNSXiiLZskbNrypiRs2nLZIOmsQdJZg6SzBklnDZLOGiSdNUg668PLknBZW96UhE1bnmjLL0vCpi36d4OkswZJZw2SzhoknTVIOmuQdNYg6awPX9aWX5aEJ9qyScKmLU8kYdOWTRI2bXlTW96UhDe15ZsGSWcNks4aJJ01SDprkHTWIOmsQdJZH35cEt7Uljcl4YkkPNGWTRK+KQmXJWHTljcNks4aJJ01SDprkHTWIOmsQdJZg6SzPuhVbXkiCZu2bJKwacub2rJJwpva8kQS/rJB0lmDpLMGSWcNks4aJJ01SDprkHTWB31VEp5IwhNJ+Mva8kQSNm3ZJGHTlm8aJJ01SDprkHTWIOmsQdJZg6SzBklnffhxbbmsLU8kYdOWTRI2bfmmJGyS8KYk/GWDpLMGSWcNks4aJJ01SDprkHTWIOmsD1+WhMuS8Ka2bJLwpiRs2rJJwhNteVMSnkjCpi1vGiSdNUg6a5B01iDprEHSWYOkswZJZ6X/QNJJg6SzBklnDZLOGiSdNUg6a5B01iDprEHSWYOkswZJZw2SzhoknTVIOmuQdNYg6axB0lmDpLMGSWcNks4aJJ01SDprkHTWIOms/wFCGWwuBoB+0AAAAABJRU5ErkJggg==";
+  const $ = id => document.getElementById(id);
+  const screen = $("screen"), ctx = screen.getContext("2d", { willReadFrequently: true });
+  const work = document.createElement("canvas"), workCtx = work.getContext("2d", { willReadFrequently: true });
+  const mark = getComputedStyle(document.documentElement);
+  let copyValue = "", stream = null, video = null, raf = 0, lastScan = 0, liveW = 0;
+
+  const say = (msg, isError) => { $("status").textContent = msg; $("status").classList.toggle("error", !!isError); };
+
+  // ---- decoding ----
+  // Bytes are re-decoded here because many Japanese QR codes hold Shift-JIS, which jsQR's text output garbles.
+  function textOf(code) {
+    const bytes = new Uint8Array(code.binaryData);
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch {}
+    try { return new TextDecoder("shift_jis", { fatal: true }).decode(bytes); } catch {}
+    return code.data;
+  }
+  function scanAt(src, w, h, target, inversion) {
+    const scale = target / Math.max(w, h);
+    work.width = Math.max(1, Math.round(w * scale));
+    work.height = Math.max(1, Math.round(h * scale));
+    workCtx.imageSmoothingEnabled = scale < 1;
+    workCtx.fillStyle = "#fff";           // transparent PNGs read as black otherwise
+    workCtx.fillRect(0, 0, work.width, work.height);
+    workCtx.drawImage(src, 0, 0, work.width, work.height);
+    const img = workCtx.getImageData(0, 0, work.width, work.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: inversion });
+    return code ? { code, scale: work.width / w } : null;
+  }
+  function scanImage(img, w, h) {
+    const long = Math.max(w, h);
+    const sizes = [...new Set([Math.min(long, 1600), 1000, 600, 400, long < 500 ? long * 3 : 0])]
+      .filter(s => s > 0 && (s <= long || s === long * 3));
+    for (const s of sizes) {
+      const hit = scanAt(img, w, h, s, "attemptBoth");
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // ---- drawing ----
+  function fit(w, h) {
+    const k = Math.min(1, 1200 / Math.max(w, h));
+    screen.width = Math.round(w * k);
+    screen.height = Math.round(h * k);
+    return k;
+  }
+  function outline(hit, k) {
+    const f = k / hit.scale, l = hit.code.location;
+    const pts = [l.topLeftCorner, l.topRightCorner, l.bottomRightCorner, l.bottomLeftCorner];
+    ctx.beginPath();
+    pts.forEach((p, i) => ctx[i ? "lineTo" : "moveTo"](p.x * f, p.y * f));
+    ctx.closePath();
+    ctx.lineWidth = Math.max(3, screen.width / 120);
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = mark.getPropertyValue("--mark").trim() || "#e0007a";
+    ctx.stroke();
+  }
+
+  // ---- result ----
+  function parseWifi(s) {
+    if (!/^WIFI:/i.test(s)) return null;
+    const out = {};
+    for (const m of s.slice(5).matchAll(/([A-Za-z]+):((?:\\.|[^;\\])*);?/g)) {
+      out[m[1].toUpperCase()] = m[2].replace(/\\(.)/g, "$1");
+    }
+    return out.S !== undefined ? out : null;
+  }
+  function kindOf(s) {
+    if (/^https?:\/\//i.test(s)) return "URL";
+    if (/^mailto:|^MATMSG:/i.test(s)) return "メール";
+    if (/^tel:/i.test(s)) return "電話番号";
+    if (/^smsto?:/i.test(s)) return "SMS";
+    if (/^BEGIN:VCARD/i.test(s)) return "連絡先";
+    if (/^BEGIN:VEVENT|^BEGIN:VCALENDAR/i.test(s)) return "予定";
+    if (/^geo:/i.test(s)) return "位置情報";
+    return "テキスト";
+  }
+  function show(code) {
+    const s = textOf(code);
+    const wifi = parseWifi(s);
+    const kind = wifi ? "Wi-Fi" : kindOf(s);
+    const modules = 17 + code.version * 4;
+    $("empty").hidden = true;
+    $("kindRow").hidden = $("resultActions").hidden = false;
+    $("kind").textContent = kind;
+    $("meta").textContent = `Ver.${code.version} ${modules}×${modules} / ${code.binaryData.length}バイト`;
+
+    $("text").hidden = !!wifi;
+    $("text").textContent = s;
+    $("wifi").hidden = !wifi;
+    $("wifi").replaceChildren();
+    if (wifi) {
+      for (const [k, v] of [["ネットワーク名", wifi.S], ["パスワード", wifi.P], ["暗号化", wifi.T]]) {
+        if (!v) continue;
+        const dt = document.createElement("dt"), dd = document.createElement("dd");
+        dt.textContent = k; dd.textContent = v;
+        $("wifi").append(dt, dd);
+      }
+    }
+    copyValue = wifi ? (wifi.P || wifi.S) : s;
+    $("copy").textContent = wifi && wifi.P ? "パスワードをコピー" : "コピー";
+
+    let url = null;
+    if (kind === "URL") { try { url = new URL(s.trim()); } catch {} }
+    $("open").hidden = $("host").hidden = !url;
+    $("open").classList.toggle("primary", !!url);
+    if (url) {
+      $("open").href = url.href;
+      $("host").replaceChildren("開く前に行き先を確認してください: ", Object.assign(document.createElement("b"), { textContent: url.hostname }));
+    }
+  }
+  $("copy").addEventListener("click", async () => {
+    const btn = $("copy"), label = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(copyValue);
+      btn.textContent = "コピーしました";
+      setTimeout(() => { btn.textContent = label; }, 1600);
+    } catch {
+      const r = document.createRange();
+      r.selectNodeContents($("text").hidden ? $("wifi") : $("text"));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      say("コピーできませんでした。選択した文字を手動でコピーしてください。", true);
+    }
+  });
+
+  // ---- image input ----
+  async function readSource(src, isSample) {
+    stopCamera();
+    if (!window.jsQR) { say("読み取りの部品を読み込めませんでした。通信状態を確認して、ページを開き直してください。", true); return; }
+    const img = new Image();
+    const url = typeof src === "string" ? src : URL.createObjectURL(src);
+    try {
+      img.src = url;
+      await img.decode();
+    } catch {
+      say("画像を開けませんでした。PNG、JPEG、WebP のいずれかで試してください。", true);
+      return;
+    }
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const k = fit(w, h);
+    ctx.drawImage(img, 0, 0, screen.width, screen.height);
+    if (typeof src !== "string") URL.revokeObjectURL(url);
+    const hit = scanImage(img, w, h);
+    $("tag").hidden = !isSample;
+    if (!hit) { say("QRコードが見つかりませんでした。コード全体が大きく写った画像で試してください。", true); return; }
+    outline(hit, k);
+    show(hit.code);
+    if (!isSample) say("読み取りました。");
+  }
+  const fromInput = e => { const f = e.target.files[0]; if (f) readSource(f); e.target.value = ""; };
+  $("pick").addEventListener("change", fromInput);
+  $("shoot").addEventListener("change", fromInput);
+  $("pickBtn").addEventListener("click", () => $("pick").click());
+  $("shootBtn").addEventListener("click", () => $("shoot").click());
+
+  addEventListener("dragover", e => { e.preventDefault(); $("viewer").classList.add("over"); });
+  addEventListener("dragleave", e => { if (!e.relatedTarget) $("viewer").classList.remove("over"); });
+  addEventListener("drop", e => {
+    e.preventDefault(); $("viewer").classList.remove("over");
+    const f = [...e.dataTransfer.files].find(f => f.type.startsWith("image/"));
+    if (f) readSource(f); else say("画像ファイルをドロップしてください。", true);
+  });
+  addEventListener("paste", e => {
+    const f = [...e.clipboardData.files].find(f => f.type.startsWith("image/"));
+    if (f) readSource(f);
+  });
+
+  // ---- live camera (only where the browser allows it, e.g. a page opened directly) ----
+  const canLive = window.top === window.self && !!navigator.mediaDevices?.getUserMedia;
+  const coarse = matchMedia("(pointer: coarse)").matches;
+  $("liveBtn").hidden = !canLive;
+  $("shootBtn").hidden = canLive || !coarse;
+  if (!canLive && coarse) $("shootBtn").classList.add("primary");
+
+  function stopCamera() {
+    cancelAnimationFrame(raf);
+    stream?.getTracks().forEach(t => t.stop());
+    stream = null; video = null;
+    $("liveBtn").textContent = "カメラで読み取る";
+  }
+  function tick(now) {
+    if (!video) return;
+    raf = requestAnimationFrame(tick);
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w) return;
+    if (w !== liveW) { liveW = w; fit(w, h); }
+    ctx.drawImage(video, 0, 0, screen.width, screen.height);
+    if (now - lastScan < 140) return;
+    lastScan = now;
+    const hit = scanAt(video, w, h, Math.min(Math.max(w, h), 800), "dontInvert");
+    if (hit) {
+      outline(hit, screen.width / w);
+      stopCamera();
+      navigator.vibrate?.(60);
+      show(hit.code);
+      $("liveBtn").textContent = "続けて読み取る";
+      say("読み取りました。");
+    }
+  }
+  $("liveBtn").addEventListener("click", async () => {
+    if (stream) { stopCamera(); say("カメラを止めました。"); return; }
+    if (!window.jsQR) { say("読み取りの部品を読み込めませんでした。通信状態を確認して、ページを開き直してください。", true); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false });
+      video = document.createElement("video");
+      video.playsInline = true; video.muted = true; video.srcObject = stream;
+      await video.play();
+      liveW = 0;
+      $("tag").hidden = true;
+      $("liveBtn").textContent = "カメラを止める";
+      say("QRコードを枠の中に写してください。");
+      raf = requestAnimationFrame(tick);
+    } catch (err) {
+      stopCamera();
+      const denied = err.name === "NotAllowedError";
+      say(denied ? "カメラの使用が許可されていません。ブラウザの設定で許可するか、画像を選んでください。"
+        : err.name === "NotFoundError" ? "カメラが見つかりません。画像を選んで読み取ってください。"
+        : "カメラを起動できませんでした。画像を選んで読み取ってください。", true);
+    }
+  });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && stream) { stopCamera(); say("画面を離れたのでカメラを止めました。"); } });
+
+  readSource(SAMPLE, true);
+})();
+</script>
+
+</body></html>
